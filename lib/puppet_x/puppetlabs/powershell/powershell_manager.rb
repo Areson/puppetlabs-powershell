@@ -33,12 +33,11 @@ module PuppetX
         at_exit { exit }
       end
 
-      def execute(powershell_code, timeout_ms = 300 * 1000)
+      def execute(powershell_code, parameters, timeout_ms = 300 * 1000)
         output_ready_event_name =  "Global\\#{SecureRandom.uuid}"
         output_ready_event = self.class.create_event(output_ready_event_name)
-
-        code = make_ps_code(powershell_code, output_ready_event_name, timeout_ms)
-
+        
+        code = make_ps_code(powershell_code, parameters, output_ready_event_name, timeout_ms)
         out, err = exec_read_result(code, output_ready_event)
 
         # Powershell adds in newline characters as it tries to wrap output around the display (by default 80 chars).
@@ -90,7 +89,7 @@ module PuppetX
         File.expand_path('../../../templates', __FILE__)
       end
 
-      def make_ps_code(powershell_code, output_ready_event_name, timeout_ms = 300 * 1000)
+      def make_ps_code(powershell_code, parameters, output_ready_event_name, timeout_ms = 300 * 1000)
         template_file = File.new(template_path + "/invoke_ps_command.erb").read
         template = ERB.new(template_file, nil, '-')
         template.result(binding)

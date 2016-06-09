@@ -410,6 +410,11 @@ try
   $ps.Commands.Clear()
   [Void]$ps.AddScript($powershell_code)
 
+  # Add script parameters if present
+  <% parameters.each do |key, value| %>
+  [Void]$ps.AddParameter("<%=key%>", <%=value%>)
+  <% end %>
+
   # out-default and MergeMyResults takes all output streams
   # and writes it to the PSHost we create
   # this needs to be the last thing executed

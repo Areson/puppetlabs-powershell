@@ -53,6 +53,96 @@ Puppet::Type.type(:exec).provide :powershell, :parent => Puppet::Provider::Exec 
     PuppetX::PowerShell::PowerShellManager.instance("#{command(:powershell)} #{self.class.powershell_args.join(' ')}")
   end
 
+  def self.process_parameter_value(value)
+    if value.is_a?(String)
+      "\"#{value}\""
+    elsif value.is_a?(Array)
+      str_val = "@("
+      
+      value.each_with_index do |v, index|
+        if index > 0
+          str_val = str_val + ', '
+        end
+
+        str_val = str_val + process_parameter_value(v)
+      end
+
+      str_val = str_val + ')'
+      str_val
+    elsif value.is_a?(Hash)
+      str_val = '@{'
+
+      value.each do |key, v|
+        str_val = str_val + "\"#{key}\"=" + process_parameter_value(v) + ';'
+      end
+
+      str_val = str_val + '}'
+      str_val
+    else
+      value.to_s()
+    end
+  end
+
+  def self.get_parameter_collection(resource)
+    unless @parameter_collection
+      # Build out the collection of parameters for all Powershell Execs that have them
+      @parameter_collection = {}    
+      @script_runs = {}
+
+      resource.catalog.resources.find_all do |resc|
+        #if resc.title =~ /Powershell::Parameters/
+        if resc.is_a?(Puppet::Type.type(:powershell_parameters))
+          p = resc[:parameters]
+          params = {}
+
+          p.each do |key, value|
+            # Format the result value
+            params[key] = process_parameter_value(value)
+          end
+
+          cond = {}
+          
+          if resc[:condition_parameters]
+            p = resc[:condition_parameters]
+
+            p.each do |key, value|
+              # Format the result value
+              cond[key] = process_parameter_value(value)
+            end
+          end
+
+          @parameter_collection[resc[:script]] = {"command" => params, "condition" => cond}       
+        end
+
+        false
+      end
+    end
+
+    # Look up the parameters for the current Exec if we have them
+    title = resource.title
+    params = {}
+
+    params_type = "command"
+
+    # Determine which condition we are getting parameters for    
+    if resource[:onlyif] || resource[:unless]
+      if !@script_runs.has_key?(title)
+        params_type = "condition"
+        @script_runs[title] = true
+      end
+    end
+    
+    if @parameter_collection.has_key?(title)
+      params = @parameter_collection[title][params_type]
+    end
+
+    params
+  end
+
+  def parameters
+    self.class.get_parameter_collection(resource)  
+  end
+
   def run(command, check = false)
     if !PuppetX::PowerShell::PowerShellManager.supported?
       self.class.upgrade_message
@@ -68,7 +158,7 @@ Puppet::Type.type(:exec).provide :powershell, :parent => Puppet::Provider::Exec 
         return super("cmd.exe /c \"\"#{native_path(command(:powershell))}\" #{legacy_args} -Command - < \"#{native_path}\"\"", check)
       end
     else
-      result = ps_manager.execute(command)
+      result = ps_manager.execute(command, parameters())
 
       stdout      = result[:stdout]
       stderr      = result[:stderr]
